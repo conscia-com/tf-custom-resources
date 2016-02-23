@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
+	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/helper/schema"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/hashicorp/terraform/helper/hashcode"
-	"strings"
 )
 
 // Number of times to retry if a throttling-related exception occurs
@@ -331,7 +332,9 @@ func resourceDashsoftAwsDynamoDbTableCreate(d *schema.ResourceData, meta interfa
 			return resourceDashsoftAwsDynamoDbTableRead(d, meta)
 		}
 	}
-	return fmt.Errorf("Exiting after maximum number of retry counts for DynamoDB table: %s", name)
+
+	// Too many throttling events occurred, give up
+	return fmt.Errorf("Unable to create DynamoDB table '%s' after %d attempts", name, attemptCount)
 }
 
 func getConditionallyScalingCapacity(d *schema.ResourceData, key string) (int, int) {
@@ -727,6 +730,37 @@ func resourceDashsoftAwsDynamoDbTableDelete(d *schema.ResourceData, meta interfa
 	if err != nil {
 		return err
 	}
+
+	params := &dynamodb.DescribeTableInput{
+		TableName: aws.String(d.Id()),
+	}
+
+	err = resource.Retry(10*time.Minute, func() error {
+		t, err := dynamodbconn.DescribeTable(params)
+		if err != nil {
+			if awserr, ok := err.(awserr.Error); ok && awserr.Code() == "ResourceNotFoundException" {
+				return nil
+			}
+			// Didn't recognize the error, so shouldn't retry.
+			return resource.RetryError{Err: err}
+		}
+
+		if t != nil {
+			if t.Table.TableStatus != nil && strings.ToLower(*t.Table.TableStatus) == "deleting" {
+				log.Printf("[DEBUG] AWS Dynamo DB table (%s) is still deleting", d.Id())
+				return fmt.Errorf("still deleting")
+			}
+		}
+
+		// we should be not found or deleting, so error here
+		return resource.RetryError{Err: fmt.Errorf("[ERR] Error deleting Dynamo DB table, unexpected state: %s", t)}
+	})
+
+	// check error from retry
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
