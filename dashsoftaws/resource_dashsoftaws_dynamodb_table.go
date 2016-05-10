@@ -40,10 +40,6 @@ func resourceDashsoftAwsDynamodbTable() *schema.Resource {
 				Type:     schema.TypeString,
 				Computed: true,
 			},
-			"latest_stream_arn": &schema.Schema{
-				Type:     schema.TypeString,
-				Computed: true,
-			},
 			"name": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,
@@ -182,6 +178,10 @@ func resourceDashsoftAwsDynamodbTable() *schema.Resource {
 					return strings.ToUpper(value)
 				},
 				ValidateFunc: validateStreamViewType,
+			},
+			"stream_arn": &schema.Schema{
+				Type:     schema.TypeString,
+				Computed: true,
 			},
 		},
 	}
@@ -577,7 +577,6 @@ func resourceDashsoftAwsDynamoDbTableUpdate(d *schema.ResourceData, meta interfa
 						}
 					}
 
-					log.Printf("[DEBUG] values: pr/pw %v/%v, nr/nw %v/%v", provisionedRead, provisionedWrite, gsiReadCapacity, gsiWriteCapacity)
 					// Should we update
 					if gsiReadCapacity != provisionedRead || gsiWriteCapacity != provisionedWrite {
 						update := &dynamodb.GlobalSecondaryIndexUpdate{
@@ -608,28 +607,13 @@ func resourceDashsoftAwsDynamoDbTableUpdate(d *schema.ResourceData, meta interfa
 						log.Printf("[DEBUG] Updating GSI read / write capacity on %s.%s to %v/%v", d.Id(), gsiName, gsiReadCapacity, gsiWriteCapacity)
 						_, err := dynamodbconn.UpdateTable(req)
 						if err != nil {
-							if awsErr, ok := err.(awserr.Error); ok {
-								if awsErr.Code() == "ResourceInUseException" {
-									log.Printf("[DEBUG] Resource in use,  sleeping for a bit table=%s, index=%s", d.Id(), gsiName)
-									time.Sleep(DYNAMODB_LIMIT_EXCEEDED_SLEEP)
-								} else /*if !(awsErr.Code() == "ValidationException" &&
-								  strings.HasPrefix(awsErr.Message(), "The provisioned throughput for the index"))*/{
-									log.Printf("[ERROR] Unhandled error: %s, %s", awsErr.Code(), awsErr.Message())
-									return err
-								}
-							}
+							log.Printf("[DEBUG] Error updating table: %s", err)
+							return err
 						}
 					}
-
-				}
-
-				if attemptCount > DYNAMODB_MAX_THROTTLE_RETRIES {
-					log.Printf("[DEBUG] Error updating gsi: %s on table %s", gsiName, d.Id())
-					return fmt.Errorf("Error updating gsi %s.%s after many retries", d.Id(), gsiName)
 				}
 			}
 		}
-
 	}
 
 	return resourceDashsoftAwsDynamoDbTableRead(d, meta)
@@ -649,6 +633,11 @@ func resourceDashsoftAwsDynamoDbTableRead(d *schema.ResourceData, meta interface
 	result, err := dynamodbconn.DescribeTable(req)
 
 	if err != nil {
+		if awsErr, ok := err.(awserr.Error); ok && awsErr.Code() == "ResourceNotFoundException" {
+			log.Printf("[WARN] Dynamodb Table (%s) not found, error code (404)", d.Id())
+			d.SetId("")
+			return nil
+		}
 		return err
 	}
 
@@ -703,7 +692,7 @@ func resourceDashsoftAwsDynamoDbTableRead(d *schema.ResourceData, meta interface
 		d.Set("stream_view_type", table.StreamSpecification.StreamViewType)
 		d.Set("stream_enabled", table.StreamSpecification.StreamEnabled)
 		if *table.StreamSpecification.StreamEnabled {
-			d.Set("latest_stream_arn", *table.LatestStreamArn)
+			d.Set("stream_arn", *table.LatestStreamArn)
 		}
 	}
 
@@ -735,25 +724,25 @@ func resourceDashsoftAwsDynamoDbTableDelete(d *schema.ResourceData, meta interfa
 		TableName: aws.String(d.Id()),
 	}
 
-	err = resource.Retry(10*time.Minute, func() error {
+	err = resource.Retry(10*time.Minute, func() *resource.RetryError {
 		t, err := dynamodbconn.DescribeTable(params)
 		if err != nil {
 			if awserr, ok := err.(awserr.Error); ok && awserr.Code() == "ResourceNotFoundException" {
 				return nil
 			}
 			// Didn't recognize the error, so shouldn't retry.
-			return resource.RetryError{Err: err}
+			return resource.NonRetryableError(err)
 		}
 
 		if t != nil {
 			if t.Table.TableStatus != nil && strings.ToLower(*t.Table.TableStatus) == "deleting" {
 				log.Printf("[DEBUG] AWS Dynamo DB table (%s) is still deleting", d.Id())
-				return fmt.Errorf("still deleting")
+				return resource.RetryableError(fmt.Errorf("still deleting"))
 			}
 		}
 
 		// we should be not found or deleting, so error here
-		return resource.RetryError{Err: fmt.Errorf("[ERR] Error deleting Dynamo DB table, unexpected state: %s", t)}
+		return resource.NonRetryableError(err)
 	})
 
 	// check error from retry
