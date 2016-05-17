@@ -603,9 +603,9 @@ func resourceDashsoftAwsDynamoDbTableUpdate(d *schema.ResourceData, meta interfa
 
 						req.GlobalSecondaryIndexUpdates = updates
 
-						// Retry logic
 						log.Printf("[DEBUG] Updating GSI read / write capacity on %s.%s to %v/%v", d.Id(), gsiName, gsiReadCapacity, gsiWriteCapacity)
 						_, err := dynamodbconn.UpdateTable(req)
+
 						if err != nil {
 							log.Printf("[DEBUG] Error updating table: %s", err)
 							return err

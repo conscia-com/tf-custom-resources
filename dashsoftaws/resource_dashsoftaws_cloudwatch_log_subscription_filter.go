@@ -191,19 +191,19 @@ func resourceDashsoftAwsCloudwatchLogSubscriptionFilterUpdate(d *schema.Resource
 
 func getAwsCloudWatchLogsSubscriptionFilterInput(d *schema.ResourceData) cloudwatchlogs.PutSubscriptionFilterInput {
 	name := d.Get("name").(string)
-	destination := d.Get("destination_arn").(string)
+	destination_arn := d.Get("destination_arn").(string)
 	filter_pattern := d.Get("filter_pattern").(string)
-	log_group := d.Get("log_group_name").(string)
+	log_group_name := d.Get("log_group_name").(string)
 
 	params := cloudwatchlogs.PutSubscriptionFilterInput{
 		FilterName:     aws.String(name),
-		DestinationArn: aws.String(destination),
+		DestinationArn: aws.String(destination_arn),
 		FilterPattern:  aws.String(filter_pattern),
-		LogGroupName:   aws.String(log_group),
+		LogGroupName:   aws.String(log_group_name),
 	}
 
-	if _, ok := d.GetOk("role"); ok {
-		params.RoleArn = aws.String(d.Get("role").(string))
+	if _, ok := d.GetOk("role_arn"); ok {
+		params.RoleArn = aws.String(d.Get("role_arn").(string))
 	}
 
 	return params
@@ -367,10 +367,10 @@ func lambdaPermissionStatementId(log_group string, lambda string) (string, error
 	}
 }
 
-func cloudwatchLogSubscriptionFilterId(log_group string) string {
+func cloudwatchLogSubscriptionFilterId(log_group_name string) string {
 	var buf bytes.Buffer
 
-	buf.WriteString(fmt.Sprintf("%s-", log_group)) // only one filter allowed per log_group at the moment
+	buf.WriteString(fmt.Sprintf("%s-", log_group_name)) // only one filter allowed per log_group_name at the moment
 
 	return fmt.Sprintf("cwlsf-%d", hashcode.String(buf.String()))
 }

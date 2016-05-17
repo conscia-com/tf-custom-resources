@@ -34,7 +34,7 @@ func resourceDashsoftAwsApiGatewayDeployment() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
-			"stagename": &schema.Schema{
+			"stage_name": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,
 				ForceNew: true,
@@ -77,7 +77,7 @@ func resourceDashsoftAwsApiGatewayDeploymentCreate(d *schema.ResourceData, meta 
 	conn := meta.(*AWSClient).apigateway
 
 	restApiId := d.Get("restapiid").(string)
-	stageName := d.Get("stagename").(string)
+	stageName := d.Get("stage_name").(string)
 
 	input := &apigateway.CreateDeploymentInput{
 		RestApiId: aws.String(restApiId),
@@ -289,7 +289,7 @@ func resourceDashsoftAwsApiGatewayDeploymentDelete(d *schema.ResourceData, meta 
 
 	restApiId := d.Get("restapiid").(string)
 
-	if v, ok := d.GetOk("stagename"); ok {
+	if v, ok := d.GetOk("stage_name"); ok {
 		stageName := v.(string)
 		log.Printf("[DEBUG] Delete stage with name %s (if it still exists)", stageName)
 		_, err := conn.DeleteStage(&apigateway.DeleteStageInput{

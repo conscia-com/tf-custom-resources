@@ -115,6 +115,21 @@ func resourceDashsoftAwsIamGroupUpdate(d *schema.ResourceData, meta interface{})
 func resourceDashsoftAwsIamGroupDelete(d *schema.ResourceData, meta interface{}) error {
 	iamconn := meta.(*AWSClient).iamconn
 
+	groupResp, groupErr := iamconn.GetGroup(&iam.GetGroupInput{
+		GroupName: aws.String(d.Id()),
+	})
+	if groupErr != nil {
+		for _, user := range groupResp.Users {
+			removeUserInput := &iam.RemoveUserFromGroupInput{
+				UserName:  aws.String(*user.UserName),
+				GroupName: aws.String(d.Id()),
+			}
+			if _, removeUserErr := iamconn.RemoveUserFromGroup(removeUserInput); removeUserErr != nil {
+				return fmt.Errorf("Error removing user %s from group %s: %s", d.Id(), user.UserName, removeUserErr)
+			}
+		}
+	}
+
 	request := &iam.DeleteGroupInput{
 		GroupName: aws.String(d.Id()),
 	}
