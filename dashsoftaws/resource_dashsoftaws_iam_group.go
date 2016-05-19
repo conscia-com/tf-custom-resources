@@ -118,14 +118,17 @@ func resourceDashsoftAwsIamGroupDelete(d *schema.ResourceData, meta interface{})
 	groupResp, groupErr := iamconn.GetGroup(&iam.GetGroupInput{
 		GroupName: aws.String(d.Id()),
 	})
+
 	if groupErr != nil {
+		return fmt.Errorf("Could not get IAM Group %s: %s", d.Id(), groupErr)
+	} else {
 		for _, user := range groupResp.Users {
 			removeUserInput := &iam.RemoveUserFromGroupInput{
 				UserName:  aws.String(*user.UserName),
 				GroupName: aws.String(d.Id()),
 			}
 			if _, removeUserErr := iamconn.RemoveUserFromGroup(removeUserInput); removeUserErr != nil {
-				return fmt.Errorf("Error removing user %s from group %s: %s", d.Id(), user.UserName, removeUserErr)
+				return fmt.Errorf("Error removing user %s from group %s: %s", *user.UserName, d.Id(), removeUserErr)
 			}
 		}
 	}
